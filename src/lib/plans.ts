@@ -2,7 +2,13 @@
 // Single plan: 2000 FCFA / month (configurable via env SAAS_PLAN_PRICE_FCFA)
 // Payment provider: SaasPay (see src/lib/saaspay.ts)
 
-import { db } from "@/lib/db";
+import { db } from "@/lib/db"; 
+// Début du mois en cours (heure locale du serveur), utilisé pour les compteurs
+// mensuels (propositions/mois, factures/mois).
+export function startOfMonth(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
 
 export const PLAN_PRICE_FCFA = Number(process.env.SAAS_PLAN_PRICE_FCFA || 2000);
 export const PLAN_CURRENCY = process.env.SAAS_PLAN_CURRENCY || "XOF";

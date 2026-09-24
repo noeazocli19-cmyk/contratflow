@@ -1,0 +1,754 @@
+// ContractFlow — Prisma schema (multi-tenant SaaS)
+// Learn more: https://pris.ly/d/prisma-schema
+//
+// Database: Neon (serverless Postgres)
+// - DATABASE_URL  → pooled connection (PgBouncer) for app runtime
+// - DIRECT_URL    → direct connection for migrations / db push
+// Both are provided by Neon in the dashboard.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenancy & users
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  logoUrl         String?
+  email           String?
+  phone           String?
+  address         String?
+  country         String?
+  currency        String   @default("XOF")
+  website         String?
+  industry        String?
+  taxRate         Float    @default(0)
+  taxId           String?
+  legalForm       String?
+  defaultPaymentTerms Int  @default(7)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users           User[]
+  prospects       Prospect[]
+  clients         Client[]
+  proposals       Proposal[]
+  quotes          Quote[]
+  contracts         Contract[]
+  contractTemplates  ContractTemplate[]
+  proposalTemplates  ProposalTemplate[]
+  quoteTemplates     QuoteTemplate[]
+  invoiceTemplates   InvoiceTemplate[]
+  emailTemplates     EmailTemplate[]
+  reminders          Reminder[]
+  projects           Project[]
+  invoices           Invoice[]
+  payments           Payment[]
+  documents          Document[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  subscription       Subscription?
+  invitations        Invitation[]
+  saasPayOrders      SaaSPayOrder[]
+  recurringInvoices  RecurringInvoice[]
+  referrals          Referral[]
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  name            String
+  phone           String?
+  avatarUrl       String?
+  role            String   @default("OWNER") // OWNER | ADMIN | MEMBER
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  onboardingStep  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  auditLogs       AuditLog[]
+  tasksAssigned   Task[]    @relation("TaskAssignee")
+  signatures      Signature[]
+  passwordResets  PasswordReset[]
+  streak          Streak?
+  accounts        Account[]
+  sessions        Session[]
+}
+
+model Subscription {
+  id              String   @id @default(cuid())
+  organizationId  String   @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan            String   @default("FREE") // FREE | PRO | AGENCY
+  status          String   @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELED
+  startedAt       DateTime @default(now())
+  renewsAt        DateTime?
+  seats           Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRM: prospects & clients
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Prospect {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  company         String?
+  email           String?
+  phone           String?
+  sector          String?
+  source          String?
+  status          String   @default("NEW") // NEW | CONTACTED | QUALIFIED | PROPOSAL_SENT | NEGOTIATION | CONVERTED | LOST
+  notes           String?
+  potentialValue  Float    @default(0)
+  contactedAt     DateTime?
+  nextActionAt    DateTime?
+  convertedClientId String?  @unique
+  convertedClient  Client?   @relation("ProspectConvertedTo", fields: [convertedClientId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Client {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  firstName       String
+  lastName        String
+  company         String?
+  email           String?
+  phone           String?
+  address         String?
+  country         String?
+  taxId           String?
+  notes           String?
+  portalToken     String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  convertedFromProspect Prospect? @relation("ProspectConvertedTo")
+  proposals       Proposal[]
+  quotes          Quote[]
+  contracts       Contract[]
+  projects        Project[]
+  invoices        Invoice[]
+  payments        Payment[]
+  documents       Document[]
+  timelineEvents  TimelineEvent[]
+  recurringInvoices RecurringInvoice[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sales documents: proposals & quotes
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Proposal {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  number          String   // e.g. PROP-2026-001
+  title           String
+  problem         String?
+  solution        String?
+  deliverables    String?
+  timeline        String?
+  amount          Float    @default(0)
+  currency        String   @default("XOF")
+  conditions      String?
+  options         String?
+  validUntil      DateTime?
+  notes           String?
+  status          String   @default("DRAFT") // DRAFT | SENT | VIEWED | ACCEPTED | REFUSED | EXPIRED
+  publicToken     String?  @unique
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  acceptedAt      DateTime?
+  refusedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items           ProposalItem[]
+  contract        Contract?
+  timelineEvents  TimelineEvent[]
+  documents       Document[]
+}
+
+model ProposalItem {
+  id              String   @id @default(cuid())
+  proposalId      String
+  proposal        Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  qty             Float    @default(1)
+  unitPrice       Float    @default(0)
+  createdAt       DateTime @default(now())
+}
+
+model Quote {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  number          String   // e.g. DEVIS-2026-001
+  issueDate       DateTime @default(now())
+  expirationDate  DateTime?
+  notes           String?
+  terms           String?
+  discount        Float    @default(0) // percentage 0-100
+  taxRate         Float    @default(0) // percentage 0-100
+  status          String   @default("DRAFT") // DRAFT | SENT | VIEWED | ACCEPTED | REFUSED | EXPIRED
+  publicToken     String?  @unique
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  acceptedAt      DateTime?
+  refusedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items           QuoteItem[]
+  documents       Document[]
+}
+
+model QuoteItem {
+  id              String   @id @default(cuid())
+  quoteId         String
+  quote           Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  qty             Float    @default(1)
+  unitPrice       Float    @default(0)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contracts & signatures
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContractTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  content         String   // markdown with {{variables}}
+  defaultAmount    Float    @default(0)
+  currency        String   @default("XOF")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Contract {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  proposalId      String?  @unique
+  proposal        Proposal? @relation(fields: [proposalId], references: [id])
+  number          String   // e.g. CONTRAT-2026-001
+  title           String
+  content         String   // markdown body with resolved variables
+  amount          Float    @default(0)
+  currency        String   @default("XOF")
+  startDate       DateTime?
+  endDate         DateTime?
+  duration        String?
+  conditions      String?
+  status          String   @default("DRAFT") // DRAFT | SENT | VIEWED | SIGNED | EXPIRED | CANCELED
+  publicToken     String?  @unique
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  signedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  signatures      Signature[]
+  project         Project?
+  invoices        Invoice[]
+  paymentPlan     PaymentPlan?
+  documents       Document[]
+  timelineEvents  TimelineEvent[]
+}
+
+model Signature {
+  id              String   @id @default(cuid())
+  contractId      String
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  signedBy        String
+  signedByEmail   String
+  signedAt        DateTime @default(now())
+  ipAddress       String?
+  userAgent       String?
+  signatureData   String?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Projects & tasks
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contractId      String?  @unique
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  name            String
+  description     String?
+  budget          Float    @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  status          String   @default("TODO") // TODO | IN_PROGRESS | PAUSED | DONE | CANCELED
+  progress        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tasks           Task[]
+  invoices        Invoice[]
+  documents       Document[]
+  timelineEvents  TimelineEvent[]
+}
+
+model Task {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  status          String   @default("TODO") // TODO | DOING | REVIEW | DONE
+  priority        String   @default("MEDIUM") // LOW | MEDIUM | HIGH
+  dueDate         DateTime?
+  assigneeId      String?
+  assignee        User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  order           Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invoicing & payments
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  contractId      String?
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  number          String   // e.g. INV-2026-0012
+  type            String   @default("FINAL") // DEPOSIT | MILESTONE | FINAL
+  issueDate       DateTime @default(now())
+  dueDate         DateTime?
+  notes           String?
+  terms           String?
+  discount        Float    @default(0)
+  taxRate         Float    @default(0)
+  status          String   @default("DRAFT") // DRAFT | SENT | VIEWED | PARTIALLY_PAID | PAID | OVERDUE | CANCELED
+  publicToken     String?  @unique
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items           InvoiceItem[]
+  payments        Payment[]
+  installment     Installment?
+  documents       Document[]
+  timelineEvents  TimelineEvent[]
+}
+
+model InvoiceItem {
+  id              String   @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  qty             Float    @default(1)
+  unitPrice       Float    @default(0)
+}
+
+model PaymentPlan {
+  id              String   @id @default(cuid())
+  contractId      String   @unique
+  contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  totalAmount     Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  installments    Installment[]
+}
+
+model Installment {
+  id              String   @id @default(cuid())
+  paymentPlanId   String
+  paymentPlan     PaymentPlan @relation(fields: [paymentPlanId], references: [id], onDelete: Cascade)
+  label           String
+  amount          Float    @default(0)
+  dueDate         DateTime?
+  invoiceId       String?  @unique
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  status          String   @default("UPCOMING") // UPCOMING | PAID | OVERDUE
+  order           Int      @default(0)
+  createdAt       DateTime @default(now())
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  invoiceId       String?
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  amount          Float
+  method          String   @default("CASH") // CASH | TRANSFER | CARD | MOBILE_MONEY | OTHER
+  reference       String?
+  status          String   @default("CONFIRMED") // PENDING | CONFIRMED | FAILED
+  paidAt          DateTime @default(now())
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Documents, notifications, audit, timeline
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Document {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id])
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  contractId      String?
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  invoiceId       String?
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  proposalId      String?
+  proposal        Proposal? @relation(fields: [proposalId], references: [id])
+  quoteId         String?
+  quote           Quote?   @relation(fields: [quoteId], references: [id])
+  name            String
+  type            String   // PROPOSAL | QUOTE | CONTRACT | INVOICE | RECEIPT | FILE
+  mime            String?
+  size            Int      @default(0)
+  storage         String   @default("URL")
+  url             String?
+  createdAt       DateTime @default(now())
+}
+
+model Notification {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type            String
+  title           String
+  message         String
+  link            String?
+  read            Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  action          String
+  target          String?
+  message         String
+  metadata        String?
+  createdAt       DateTime @default(now())
+}
+
+model TimelineEvent {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id])
+  proposalId      String?
+  proposal        Proposal? @relation(fields: [proposalId], references: [id])
+  contractId      String?
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  invoiceId       String?
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  type            String
+  message         String
+  createdAt       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Password recovery & team invitations
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Invitation {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email           String
+  role            String   @default("MEMBER")
+  token           String   @unique
+  invitedBy       String
+  acceptedAt      DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reusable templates (proposals, quotes, invoices, emails) & reminders
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ProposalTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  title           String
+  problem         String?
+  solution        String?
+  deliverables    String?
+  timeline        String?
+  amount          Float    @default(0)
+  conditions      String?
+  options         String?
+  notes           String?
+  defaultItems    String?  // JSON array of { title, description, qty, unitPrice }
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model QuoteTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  terms           String?
+  notes           String?
+  discount        Float    @default(0)
+  taxRate         Float    @default(0)
+  defaultItems    String?  // JSON array
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model InvoiceTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  type            String   @default("FINAL")
+  terms           String?
+  notes           String?
+  discount        Float    @default(0)
+  taxRate         Float    @default(0)
+  defaultItems    String?  // JSON array
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model EmailTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  subject         String
+  body            String   // markdown with {{variables}}
+  type            String   @default("CUSTOM") // WELCOME | PROPOSAL_SENT | CONTRACT_SENT | INVOICE_SENT | REMINDER_DUE | REMINDER_OVERDUE | RECEIPT | CUSTOM
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Reminder {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  trigger         String   // INVOICE_DUE_SOON | INVOICE_OVERDUE | CONTRACT_UNSIGNED | PROPOSAL_EXPIRING
+  daysOffset      Int      @default(0)  // days before/after due date (negative = before)
+  channel         String   @default("EMAIL") // EMAIL | SMS | WHATSAPP | IN_APP
+  emailTemplateId String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SaasPay billing (single plan 2000 FCFA / month)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SaaSPayOrder {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  amount             Float                  // 2000 FCFA
+  currency           String   @default("XOF")
+  reference          String   @unique       // our internal order ref (CF-...)
+  externalSessionId  String?  @unique       // SasPay checkout-session id (UUID) — used to poll /checkout-sessions/{id}/
+  externalTxnId      String?                // SasPay transaction id once paid (from checkout-session.transaction)
+  status             String   @default("PENDING") // PENDING | PAID | FAILED | CANCELED | REFUNDED
+  checkoutUrl        String?                // SasPay hosted checkout URL
+  customerEmail      String?
+  customerPhone      String?
+  paidAt             DateTime?
+  rawPayload         String?  // JSON: full SasPay webhook payload (audit)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Referral / affiliate program
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Referral {
+  id              String   @id @default(cuid())
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  referrerEmail   String
+  referrerCode    String   @unique
+  refereeEmail    String?
+  refereeOrgId    String?
+  commissionPct   Float    @default(20)
+  status          String   @default("PENDING")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Waitlist (pre-launch signups)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WaitlistEntry {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String?
+  company         String?
+  source          String?                // landing | partner | referral
+  referralCode    String?
+  status          String   @default("PENDING") // PENDING | INVITED | CONVERTED
+  createdAt       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recurring invoice templates (subscription billing for the freelancer's clients)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RecurringInvoice {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  frequency       String   @default("MONTHLY") // WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  amount          Float
+  currency        String   @default("XOF")
+  nextRunAt       DateTime
+  active          Boolean  @default(true)
+  lastInvoiceId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity / leaderboard / gamification
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Streak {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  current         Int      @default(0)
+  longest         Int      @default(0)
+  lastActivityAt  DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
+// Add reverse relations on existing models (Organization, Client, User)
+// NOTE: Organization already has `users User[]`. We add `referrals`, `recurringInvoices`, `saasPayOrders`.
+// These are appended; the relation fields above already point back to Organization.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Better Auth — required models
+// (https://www.better-auth.com/docs/concepts/database)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Better Auth stores OAuth/social logins + email/password credentials per account.
+// For email/password, it uses an Account row with providerId="credential".
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId         String
+  providerId        String
+  accessToken       String?
+  refreshToken      String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope             String?
+  idToken           String?
+  password          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt       DateTime
+  token           String   @unique
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Verification {
+  id              String   @id @default(cuid())
+  identifier      String
+  value           String
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

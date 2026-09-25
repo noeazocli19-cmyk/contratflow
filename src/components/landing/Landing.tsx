@@ -68,7 +68,7 @@ const PLANS = [
   },
   {
     name: "Pro",
-    price: "12 000",
+    price: "2000",
     period: " F CFA / mois",
     description: "Pour les freelances actifs",
     features: [
@@ -86,7 +86,7 @@ const PLANS = [
   },
   {
     name: "Agency",
-    price: "29 000",
+    price: "6000",
     period: " F CFA / mois",
     description: "Pour les petites agences",
     features: [

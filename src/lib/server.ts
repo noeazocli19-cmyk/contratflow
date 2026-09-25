@@ -5,10 +5,25 @@ import { can, isRole, type Role } from "@/lib/permissions";
 
 export { getCurrentUser };
 
-export type AuthCtx = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+export type RawAuthCtx = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+
+// Narrowed type: once getCtx() returns non-null, organizationId/organization sont
+// garantis présents — un utilisateur peut brièvement exister sans organisation
+// juste après sa création par Better Auth (avant que notre wrapper d'inscription
+// n'en attache une), mais un tel utilisateur ne peut rien faire dans l'app —
+// on le traite donc comme "pas encore connecté" ici plutôt que de laisser
+// `string | null` se propager dans chaque route.
+export type AuthCtx = Omit<RawAuthCtx, "user"> & {
+  user: Omit<RawAuthCtx["user"], "organizationId" | "organization"> & {
+    organizationId: string;
+    organization: NonNullable<RawAuthCtx["user"]["organization"]>;
+  };
+};
 
 export async function getCtx(): Promise<AuthCtx | null> {
-  return (await getCurrentUser()) ?? null;
+  const c = await getCurrentUser();
+  if (!c || !c.user.organizationId || !c.user.organization) return null;
+  return c as AuthCtx;
 }
 
 export function ok(data: unknown, status = 200) {

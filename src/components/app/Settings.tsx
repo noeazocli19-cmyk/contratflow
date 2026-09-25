@@ -1322,7 +1322,7 @@ const PLANS: {
   {
     key: "PRO",
     name: "Pro",
-    price: "15 000",
+    price: "2 000",
     period: "FCFA / mois",
     tone: "emerald",
     badge: "Populaire",
@@ -1341,7 +1341,7 @@ const PLANS: {
   {
     key: "AGENCY",
     name: "Agence",
-    price: "39 000",
+    price: "6 000",
     period: "FCFA / mois",
     tone: "violet",
     badge: "Équipes",
